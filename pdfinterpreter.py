@@ -1,6 +1,6 @@
 import PyPDF2
 import re
-
+import pandas as pd
 
 def extract_text_from_pdf(file_path):
     """
@@ -84,8 +84,97 @@ def pdf_to_vote_list(file_path):
         VOTACIONES.append(VOTACION)
     return VOTACIONES
 
+def name_to_id(name, Congress):
+    names_wo_spaces = dict(enumerate([re.sub(r"[\s*]", "",i.strip()).lower() for i in list(Congress["Congresista"])]))
+    #First we account for brothers in Congress
+    if "Héctor" in name:
+        id = 1
+    elif "María" in name and "Acuña" in name:
+        id = 0
+    elif name == "CorderoJonTay":
+        id = 32
+    elif name == "MaríaCorderoJonTay":
+        id = 33
+    elif name == "LuisCorderoJonTay":
+        id = 32
+    elif name == "AlcarrazAgüero":
+        id = 4
+    elif name == "FloresRuiz":
+        id = 49
+    elif name == "JeríOré":
+        id = 61
+    elif name == "RuizRodríguez":
+        id = 111
+    elif name == "VenturaÁngel":
+        id = 128
+    elif name == "EchaizdeNúñezIzaga":
+        id=42
+    elif name == "JulonIrigoin":
+        id = 65
+    elif name == "RamirezGarcia":
+        id = 104
+    else:
+        for key, value in names_wo_spaces.items():
+            if name.lower() in value:
+                id = key
+                break
+        else:
+            print(name)
+            id = -1
+    return id
 
+def transform_votes_to_id(VOTACIONES, Congress):
+    for votacion in VOTACIONES:
+        if "A FAVOR" in votacion:
+            votacion["A FAVOR"] = [name_to_id(re.sub(r"[\s]*?", "", i),Congress) for i in votacion["A FAVOR"]]
+        # Check if 'EN CONTRA' key exists before accessing it
+        if "EN CONTRA" in votacion:
+            votacion["EN CONTRA"] = [name_to_id(re.sub(r"[\s]*?", "", i),Congress) for i in votacion["EN CONTRA"]]
+        # Check if 'ABSTENCION' key exists before accessing it
+        if "ABSTENCION" in votacion:
+            votacion["ABSTENCION"] = [name_to_id(re.sub(r"[\s]*?", "", i),Congress) for i in votacion["ABSTENCION"]]
+    return VOTACIONES
+
+
+def create_vote_dataframe(votaciones, congress_df):
+    """
+    Creates a pandas DataFrame representing votes, with the congressperson ID as the index.
+
+    Args:
+        votaciones: A list of dictionaries, where each dictionary represents a vote.
+        congress_df: The DataFrame containing information about congresspeople.
+
+    Returns:
+        A pandas DataFrame.
+    """
+    
+    congress_dict = dict(enumerate(congress_df["Congresista"]))
+
+    data = {}
+
+    for vote_data in votaciones:
+        vote_name = vote_data["Nombre de la votacion"]
+        data[vote_name] = {}
+
+        # Initialize all congresspeople's votes to NaN (missing) for this vote
+        for congress_id in congress_dict:
+          data[vote_name][congress_id] = 0
+
+        for congress_id in vote_data.get("A FAVOR", []):
+            data[vote_name][congress_id] = 1
+        for congress_id in vote_data.get("EN CONTRA", []):
+            data[vote_name][congress_id] = -1
+
+    df = pd.DataFrame(data)
+    df.index = congress_df.index # The indices of congress_df should already be the congressmen's IDs
+    return df
+
+# Example usage (assuming you have the 'VOTACIONES' and 'Congress' DataFrames)
+# vote_df = create_vote_dataframe(VOTACIONES, Congress)
+# vote_df
+def pdf_to_vote_df(file_path, Congress):
+    return(create_vote_dataframe(transform_votes_to_id(pdf_to_vote_list(file_path), Congress), Congress))
 # Ruta del archivo PDF
-if __name__ == "__main__":
-    file_path = r".\ACTAS\06-04.set.2024.pdf"
-    print(pdf_to_vote_list(file_path))
+# if __name__ == "__main__":
+#     file_path = r".\ACTAS\06-04.set.2024.pdf"
+#     print(pdf_to_vote_list(file_path))

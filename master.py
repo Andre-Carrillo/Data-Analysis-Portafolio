@@ -12,6 +12,8 @@ import lxml.html as html
 import numpy as np
 import pandas as pd
 
+from pdfinterpreter import pdf_to_vote_df
+
 XPATH_LIST_CONGRESSMEN = '//a[@class="conginfo"]/text()'
 XPATH_LIST_URLCONGINFO = '//a[@class="conginfo"]/@href'
 
@@ -70,5 +72,6 @@ Congress = pd.DataFrame({"Congresista":LIST_CONGRESSMEN,
                             "Bancada":[i[0] for i in LIST_BANCADAS],
                             "Grupo":[i[0] for i in LIST_GRUPO_POLITICO],
                             "Votacion":[i[0] for i in LIST_VOTACION]})
+
 
 
