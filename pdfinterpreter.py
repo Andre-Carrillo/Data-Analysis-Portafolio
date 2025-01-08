@@ -1,44 +1,50 @@
 import PyPDF2
 import re
 import pandas as pd
-import os
-
-def pdf_to_vote_df(file_path, Congress):
+def pdfs_to_vote_df_debug(folder_path, Congress):
     """
-    Debug function that processes a PDF file, extracts voting data, and creates a DataFrame.
+    Debug function that processes all PDF files in a folder, extracts voting data, and creates a DataFrame.
     Skips entries where the congressperson ID is -1 and logs processing steps.
 
     Args:
-        file_path: Path to the PDF file.
+        folder_path: Path to the folder containing PDF files.
         Congress: DataFrame containing congressperson data.
 
     Returns:
-        A pandas DataFrame representing votes.
+        A pandas DataFrame representing votes, with each column representing a congressperson.
     """
 
     def extract_text_from_pdf(file_path):
         try:
+            print(f"Extracting text from PDF: {file_path}...")
             with open(file_path, 'rb') as pdf_file:
                 pdf_reader = PyPDF2.PdfReader(pdf_file)
                 text = ""
                 for page in pdf_reader.pages:
                     text += page.extract_text()
+                print(f"Text extraction complete for {file_path}.")
                 return text
         except Exception as e:
-            return f"Error al procesar el PDF: {e}"
+            print(f"Error during PDF processing for {file_path}: {e}")
+            return ""
 
     def clean_text(text):
+        print("Cleaning extracted text...")
         cleaned_text = re.sub(
-            r"(DEPARTAMENTO DE RELATORÍA , AGENDA Y ACTAS[\s\S]*?- \d+ -)|-=o=-",
+            r"(DEPARTAMENTO.DE.RELATORÍA.,.AGENDA.Y.ACTAS[\s\S]*?- \d+ -)|-=o=-",
             "",
             text
         )
         cleaned_text = re.sub(r"\n\s*\n", " ", cleaned_text)
         cleaned_text = cleaned_text.replace("\n", " ").strip()
+        print("Text cleaning complete.")
         return cleaned_text
 
     def pdf_to_vote_list(file_path):
+        print(f"Converting PDF to vote list for {file_path}...")
         pdf_text = extract_text_from_pdf(file_path)
+        if not pdf_text:
+            return []
         cleaned_text = clean_text(pdf_text)
         votaciones_raw = re.findall(r"REGISTRO DIGITAL DE(.*?):(.*?)-", cleaned_text)
         VOTACIONES = []
@@ -50,94 +56,10 @@ def pdf_to_vote_df(file_path, Congress):
             VOTACION["Nombre de la votacion"] = titulo_votacion
             for i in range(1, len(votacion_text.split("CONGRESISTA"))):
                 if "FAVOR" in votacion_text.split("CONGRESISTA")[i]:
-                    lista = re.findall(r"([A-Z].*?)(?=[,.]| y )", votacion_text.split("CONGRESISTA")[i].split("FAVOR")[1])
+                    try:
+                        lista = re.findall(r"([A-Z].*?)(?=[,.]| y )", votacion_text.split("CONGRESISTA")[i].split("FAVOR")[1].split(".")[0])
+                    except:
+                        print(votacion_text.split("CONGRESISTA")[i].split(":"))
                     VOTACION["A FAVOR"] = lista
                 elif "EN CONTRA" in votacion_text.split("CONGRESISTA")[i]:
-                    lista = re.findall(r"([A-Z].*?)(?=[,.]| y )", votacion_text.split("CONGRESISTA")[i].split(":")[1])
-                    VOTACION["EN CONTRA"] = lista
-                elif "ABST" in votacion_text.split("CONGRESISTA")[i]:
-                    lista = re.findall(r"([A-Z].*?)(?=[,.]| y )", votacion_text.split("CONGRESISTA")[i].split(":")[1][:-2])
-                    VOTACION["ABSTENCION"] = lista
-            VOTACIONES.append(VOTACION)
-        return VOTACIONES
-
-    def name_to_id(name, Congress):
-        names_wo_spaces = dict(enumerate([re.sub(r"[\s*]", "", i.strip()).lower() for i in list(Congress["Congresista"])]))
-        if "Héctor" in name:
-            id = 1
-        elif "María" in name and "Acuña" in name:
-            id = 0
-        elif name == "CorderoJonTay":
-            id = 32
-        elif name == "MaríaCorderoJonTay":
-            id = 33
-        elif name == "LuisCorderoJonTay":
-            id = 32
-        elif name == "AlcarrazAgüero":
-            id = 4
-        elif name == "FloresRuiz":
-            id = 49
-        elif name == "JeríOré":
-            id = 61
-        elif name == "RuizRodríguez":
-            id = 111
-        elif name == "VenturaÁngel":
-            id = 128
-        elif name == "EchaizdeNúñezIzaga":
-            id = 42
-        elif name == "JulonIrigoin":
-            id = 65
-        elif name == "RamirezGarcia":
-            id = 104
-        else:
-            for key, value in names_wo_spaces.items():
-                if name.lower() in value:
-                    id = key
-                    break
-            else:
-                print(f"Unknown name: {name}")
-                id = -1
-        return id
-
-    def transform_votes_to_id(VOTACIONES, Congress):
-        for votacion in VOTACIONES:
-            if "A FAVOR" in votacion:
-                votacion["A FAVOR"] = [name_to_id(re.sub(r"[\s]*?", "", i), Congress) for i in votacion["A FAVOR"]]
-            if "EN CONTRA" in votacion:
-                votacion["EN CONTRA"] = [name_to_id(re.sub(r"[\s]*?", "", i), Congress) for i in votacion["EN CONTRA"]]
-            if "ABSTENCION" in votacion:
-                votacion["ABSTENCION"] = [name_to_id(re.sub(r"[\s]*?", "", i), Congress) for i in votacion["ABSTENCION"]]
-        return VOTACIONES
-
-    def create_vote_dataframe(votaciones, congress_df):
-        congress_dict = dict(enumerate(congress_df["Congresista"]))
-        data = {}
-
-        for vote_data in votaciones:
-            vote_name = vote_data["Nombre de la votacion"]
-            data[vote_name] = {}
-
-            for congress_id in congress_dict:
-                data[vote_name][congress_id] = 0
-
-            for congress_id in vote_data.get("A FAVOR", []):
-                if congress_id != -1:
-                    data[vote_name][congress_id] = 1
-                else:
-                    print(f"Skipping invalid ID in 'A FAVOR': {congress_id}")
-            for congress_id in vote_data.get("EN CONTRA", []):
-                if congress_id != -1:
-                    data[vote_name][congress_id] = -1
-                else:
-                    print(f"Skipping invalid ID in 'EN CONTRA': {congress_id}")
-
-        df = pd.DataFrame(data)
-        df.index = congress_df.index
-        return df
-
-    print("Starting PDF to vote DataFrame process...")
-    VOTACIONES = pdf_to_vote_list(file_path)
-    VOTACIONES = transform_votes_to_id(VOTACIONES, Congress)
-    vote_df = create_vote_dataframe(VOTACIONES, Congress)
-    print("Process complete.")
-    return vote_df
+                    lista = re.findall(r"([A-Z].*?)(?=[,.]| y )", votacion_text.split("CONGRESISTA")[i].split(":")[1].split(".")[0]+".")
