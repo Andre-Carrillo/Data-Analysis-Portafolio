@@ -1,6 +1,8 @@
 import PyPDF2
 import re
 import pandas as pd
+import os
+
 def pdfs_to_vote_df_debug(folder_path, Congress):
     """
     Debug function that processes all PDF files in a folder, extracts voting data, and creates a DataFrame.
@@ -16,7 +18,6 @@ def pdfs_to_vote_df_debug(folder_path, Congress):
 
     def extract_text_from_pdf(file_path):
         try:
-            print(f"Extracting text from PDF: {file_path}...")
             with open(file_path, 'rb') as pdf_file:
                 pdf_reader = PyPDF2.PdfReader(pdf_file)
                 text = ""
@@ -29,7 +30,6 @@ def pdfs_to_vote_df_debug(folder_path, Congress):
             return ""
 
     def clean_text(text):
-        print("Cleaning extracted text...")
         cleaned_text = re.sub(
             r"(DEPARTAMENTO.DE.RELATORÍA.,.AGENDA.Y.ACTAS[\s\S]*?- \d+ -)|-=o=-",
             "",
@@ -37,11 +37,9 @@ def pdfs_to_vote_df_debug(folder_path, Congress):
         )
         cleaned_text = re.sub(r"\n\s*\n", " ", cleaned_text)
         cleaned_text = cleaned_text.replace("\n", " ").strip()
-        print("Text cleaning complete.")
         return cleaned_text
 
     def pdf_to_vote_list(file_path):
-        print(f"Converting PDF to vote list for {file_path}...")
         pdf_text = extract_text_from_pdf(file_path)
         if not pdf_text:
             return []
@@ -63,3 +61,104 @@ def pdfs_to_vote_df_debug(folder_path, Congress):
                     VOTACION["A FAVOR"] = lista
                 elif "EN CONTRA" in votacion_text.split("CONGRESISTA")[i]:
                     lista = re.findall(r"([A-Z].*?)(?=[,.]| y )", votacion_text.split("CONGRESISTA")[i].split(":")[1].split(".")[0]+".")
+                    VOTACION["EN CONTRA"] = lista
+                elif "ABST" in votacion_text.split("CONGRESISTA")[i]:
+                    if ":" in votacion_text.split("CONGRESISTA")[i][:-2]:
+                        lista = re.findall(r"([A-Z].*?)(?=[,.]| y )", votacion_text.split("CONGRESISTA")[i].split(":")[1].split(".")[0])
+                    else:
+                        lista = re.findall(r"([A-Z].*?)(?=[,.]| y )", votacion_text.split("CONGRESISTA")[i].split(".")[0])
+                    VOTACION["ABSTENCION"] = lista
+            VOTACIONES.append((VOTACION, votacion_text))
+        print(f"Vote list conversion complete for {file_path}.")
+        return VOTACIONES
+
+    def name_to_id(name, Congress):
+        names_wo_spaces = dict(enumerate([re.sub(r"[\s*]|[A-Z](?=[A-Z])", "", i.strip()).lower() for i in list(Congress["Congresista"])]))
+        if "Héctor" in name:
+            id = 1
+        elif "María" in name and "Acuña" in name:
+            id = 0
+        elif name == "CorderoJonTay":
+            id = 32
+        elif name == "MaríaCorderoJonTay":
+            id = 33
+        elif name == "LuisCorderoJonTay":
+            id = 32
+        elif name == "AlcarrazAgüero":
+            id = 4
+        elif name == "FloresRuiz":
+            id = 49
+        elif name == "JeríOré":
+            id = 61
+        elif name == "RuizRodríguez":
+            id = 111
+        elif name == "VenturaÁngel":
+            id = 128
+        elif name == "EchaizdeNúñezIzaga":
+            id = 42
+        elif name == "JulonIrigoin":
+            id = 65
+        elif name == "RamirezGarcia":
+            id = 104
+        else:
+            for key, value in names_wo_spaces.items():
+                if name.lower() in value:
+                    id = key
+                    break
+            else:
+                print(f"Unknown name: {name}")
+                id = -1
+        return id
+
+    def transform_votes_to_id(VOTACIONES, Congress):
+        for votacion in VOTACIONES:
+            if "A FAVOR" in votacion[0]:
+                votacion[0]["A FAVOR"] = [name_to_id(re.sub(r"[\s]*?", "", i), Congress) for i in votacion[0]["A FAVOR"]]
+            if "EN CONTRA" in votacion[0]:
+                votacion[0]["EN CONTRA"] = [name_to_id(re.sub(r"[\s]*?", "", i), Congress) for i in votacion[0]["EN CONTRA"]]
+            if "ABSTENCION" in votacion[0]:
+                votacion[0]["ABSTENCION"] = [name_to_id(re.sub(r"[\s]*?", "", i), Congress) for i in votacion[0]["ABSTENCION"]]
+        return [i[0] for i in VOTACIONES]
+
+    def create_vote_dataframe(votaciones, congress_df):
+        congress_dict = dict(enumerate(congress_df["Congresista"]))
+        data = {}
+
+        for vote_data in votaciones:
+            vote_name = vote_data["Nombre de la votacion"]
+            data[vote_name] = {}
+
+            for congress_id in congress_dict:
+                data[vote_name][congress_id] = 0
+
+            for congress_id in vote_data.get("A FAVOR", []):
+                if congress_id != -1:
+                    data[vote_name][congress_id] = 1
+                else:
+                    print(f"Skipping invalid ID in 'A FAVOR': {congress_id}")
+            for congress_id in vote_data.get("EN CONTRA", []):
+                if congress_id != -1:
+                    data[vote_name][congress_id] = -1
+                else:
+                    print(f"Skipping invalid ID in 'EN CONTRA': {congress_id}")
+
+        df = pd.DataFrame(data)
+        df.index = congress_df.index
+        print("Vote DataFrame creation complete.")
+        print(df.size)
+        return df
+
+    print("Starting PDF to vote DataFrame process...")
+    all_votaciones = []
+
+    for file_name in os.listdir(folder_path):
+        if file_name.endswith(".pdf"):
+            file_path = os.path.join(folder_path, file_name)
+            print(f"Processing file: {file_name}")
+            votaciones = pdf_to_vote_list(file_path)
+            votaciones = transform_votes_to_id(votaciones, Congress)
+            all_votaciones.extend(votaciones)
+
+    vote_df = create_vote_dataframe(all_votaciones, Congress)
+    print("All files processed. Final DataFrame created.")
+    return vote_df
