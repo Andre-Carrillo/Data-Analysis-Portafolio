@@ -1,9 +1,6 @@
 from pdfinterpreter import pdfs_to_vote_df
 import pandas as pd
-
-folders = ["1.1.1", "1.2.1", "1.2.2", "1.2.3", "1.3.1", "1.3.2", "1.4.1", "1.4.2"]
-#
-# 
+ 
 folders = ["1.4.1", "1.2.3", "1.4.2", "1.3.2", "1.3.1", "1.2.2", "1.2.1", "1.1.1"]
 
 votes = [pdfs_to_vote_df(f"./ACTAS/{folder}", pd.read_csv("Congreso.csv", index_col=0)) for folder in folders]
